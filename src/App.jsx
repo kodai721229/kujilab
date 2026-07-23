@@ -504,8 +504,13 @@ function computeHotCold(data, game, windowSize) {
   data.forEach((r, idx) => r.slice(1, 1 + game.pick).forEach((n) => { lastSeen[n] = idx; }));
   const sinceLastSeen = {};
   for (let n = game.min; n <= game.max; n++) sinceLastSeen[n] = lastSeen[n] === -1 ? data.length : (data.length - 1 - lastSeen[n]);
-  const hot = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, c]) => ({ n: Number(n), c }));
-  const cold = Object.entries(sinceLastSeen).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, c]) => ({ n: Number(n), c }));
+  const hot = Object.entries(freq).sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0])).slice(0, 8).map(([n, c]) => ({ n: Number(n), c }));
+  const hotSet = new Set(hot.map((h) => h.n));
+  const cold = Object.entries(sinceLastSeen)
+    .filter(([n]) => !hotSet.has(Number(n)))
+    .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))
+    .slice(0, 8)
+    .map(([n, c]) => ({ n: Number(n), c }));
   return { hot, cold, window: Math.min(windowSize, data.length) };
 }
 
