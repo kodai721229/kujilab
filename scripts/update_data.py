@@ -2,15 +2,12 @@
 """
 くじ解析ラボ - 抽選データ自動更新スクリプト
 
-【重要な注意】
-このスクリプトの SOURCES に設定した URL は、Leo(レオ)が web検索できない環境で
-作成したため、まだ実際に動作確認ができていません。
-GitHub Actions を初めて実行したとき、Actions タブのログでエラーが出た場合は、
-- 「このゲームのデータ取得に失敗しました」という警告が出ているだけなら、
-  そのゲームだけ更新をスキップして他のゲームは処理を続けます(安全設計)。
-- 全部失敗する場合は、正しい取得先 URL を調べる必要があります。
-  web検索できるセッションで Leo に「update_data.py の SOURCES を直して」と
-  頼んでください。
+【データ取得元について】
+mk-mode.com が個人配布している全回まとめCSVを使用しています
+(https://www.mk-mode.com/rails/loto)。開発者本人の注記:
+「データは当方が個人的に利用するためのデータですので、一切保証はいたしません」
+とのことなので、非商用・個人利用の範囲で使うこと。ビンゴ5(BINGO5)は
+このサイトに存在しないため対象外(Noneのまま)。
 
 【処理の流れ】
 1. 各ゲームの CSV を SOURCES の URL から取得
@@ -31,16 +28,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "public" / "data"
 
 # ==========================================================================
-# 取得先 URL(要検証 - 上記の注意書き参照)
+# 取得先 URL
 # 値が None のゲームは自動更新の対象外(手動更新のまま)。
 # ==========================================================================
 SOURCES = {
-    "loto6": None,      # 例: "https://example.com/data/loto6.csv"
-    "loto7": None,
-    "miniloto": None,
-    "bingo5": None,
-    "numbers3": None,
-    "numbers4": None,
+    "loto6": "https://www.mk-mode.com/rails/loto/LOTO6_ALL.csv",
+    "loto7": "https://www.mk-mode.com/rails/loto/LOTO7_ALL.csv",
+    "miniloto": "https://www.mk-mode.com/rails/loto/MINILOTO_ALL.csv",
+
+    "bingo5": None,      # mk-mode.comに該当データなし。自動更新は現状非対応
+    "numbers3": "https://www.mk-mode.com/rails/loto/NUMBERS3_ALL.csv",
+    "numbers4": "https://www.mk-mode.com/rails/loto/NUMBERS4_ALL.csv",
 }
 
 # 各ゲームの列レイアウト設定(ユーザーが過去にアップロードしたCSV形式に準拠)
