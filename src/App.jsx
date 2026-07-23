@@ -450,6 +450,191 @@ function LeoKichiSpeech({ dateLabel, tags }) {
 }
 
 
+// ===== 最新結果の表示 & 的中チェック =====
+function numBallStyle(active, size) {
+  return {
+    width: size, height: size, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: size * 0.4,
+    background: active ? 'var(--brand-deep)' : 'var(--surface-alt)',
+    color: active ? '#fff' : 'var(--ink)',
+    border: active ? '2px solid var(--gold)' : '1px solid var(--line)',
+    transition: 'all .15s ease',
+  };
+}
+
+function computeTrackRecord(data, game, n) {
+  if (data.length < n + 5) n = Math.max(0, data.length - 5);
+  if (n <= 0) return [];
+  const cutoff = data.length - n;
+  const train = data.slice(0, cutoff);
+  const model = buildModel(train, game);
+  const results = [];
+  for (let i = cutoff; i < data.length; i++) {
+    const prevRow = data[i - 1];
+    const prevSet = new Set(prevRow.slice(1, 1 + game.pick));
+    const scores = scoreAllPick(model, prevSet, { prior: 0.3, mk: 0.3, ema: 0.2, cop: 0.2 });
+    const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, game.pick).map(([m]) => Number(m));
+    const actualSet = new Set(data[i].slice(1, 1 + game.pick));
+    const matched = predicted.filter((x) => actualSet.has(x)).length;
+    results.push({ round: data[i][0], matched });
+    // 逐次モデル更新(ローリング検証)
+    model.total += 1;
+    prevRow.slice(1, 1 + game.pick).forEach((nn) => { model.freq[nn] += 1; });
+    for (let nn = game.min; nn <= game.max; nn++) model.ema[nn] = 0.3 * (prevSet.has(nn) ? 1 : 0) + 0.7 * model.ema[nn];
+    for (let nn = game.min; nn <= game.max; nn++) {
+      const key = (prevSet.has(nn) ? '1' : '0') + (actualSet.has(nn) ? '1' : '0');
+      model.markov[nn][key] += 1;
+    }
+    const sorted = prevRow.slice(1, 1 + game.pick).slice().sort((a, b) => a - b);
+    for (let a = 0; a < game.pick; a++) for (let b = a + 1; b < game.pick; b++) {
+      const key = sorted[a] + '-' + sorted[b];
+      model.pairCounter[key] = (model.pairCounter[key] || 0) + 1;
+    }
+  }
+  return results;
+}
+
+function computeHotCold(data, game, windowSize) {
+  const recent = data.slice(-windowSize);
+  const freq = {};
+  for (let n = game.min; n <= game.max; n++) freq[n] = 0;
+  recent.forEach((r) => r.slice(1, 1 + game.pick).forEach((n) => { freq[n] += 1; }));
+  const lastSeen = {};
+  for (let n = game.min; n <= game.max; n++) lastSeen[n] = -1;
+  data.forEach((r, idx) => r.slice(1, 1 + game.pick).forEach((n) => { lastSeen[n] = idx; }));
+  const sinceLastSeen = {};
+  for (let n = game.min; n <= game.max; n++) sinceLastSeen[n] = lastSeen[n] === -1 ? data.length : (data.length - 1 - lastSeen[n]);
+  const hot = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, c]) => ({ n: Number(n), c }));
+  const cold = Object.entries(sinceLastSeen).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n, c]) => ({ n: Number(n), c }));
+  return { hot, cold, window: Math.min(windowSize, data.length) };
+}
+
+function LatestResultCheck({ data, digitData, game, gameKey }) {
+  const isDigit = !!game.digits;
+  const latest = isDigit ? (digitData && digitData[digitData.length - 1]) : (data && data[data.length - 1]);
+  const [track, setTrack] = useState(null);
+  const [hotCold, setHotCold] = useState(null);
+  const [predCheck, setPredCheck] = useState(null);
+  const [nextPred, setNextPred] = useState(null);
+
+  useEffect(() => {
+    if (isDigit || !data || data.length < 20) { setTrack(null); setHotCold(null); return; }
+    setTrack(computeTrackRecord(data, game, 15));
+    setHotCold(computeHotCold(data, game, 30));
+  }, [data, game, gameKey, isDigit]);
+
+  useEffect(() => {
+    if (isDigit || !data || data.length < 3) return;
+    let cancelled = false;
+    (async () => {
+      const key = `pred_${gameKey}`;
+      const latestRound = data[data.length - 1][0];
+      try {
+        const res = await window.storage.get(key);
+        const saved = JSON.parse(res.value);
+        if (saved.round === latestRound) {
+          const actualSet = new Set(data[data.length - 1].slice(1, 1 + game.pick));
+          const matched = saved.predicted.filter((n) => actualSet.has(n)).length;
+          if (!cancelled) setPredCheck({ round: saved.round, predicted: saved.predicted, matched, actualSet });
+        }
+      } catch (e) { /* 保存された前回予想なし */ }
+
+      const model = buildModel(data, game);
+      const prevSet = new Set(data[data.length - 1].slice(1, 1 + game.pick));
+      const scores = scoreAllPick(model, prevSet, { prior: 0.3, mk: 0.3, ema: 0.2, cop: 0.2 });
+      const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, game.pick).map(([n]) => Number(n)).sort((a, b) => a - b);
+      if (!cancelled) setNextPred({ round: latestRound + 1, predicted });
+      try { await window.storage.set(key, JSON.stringify({ round: latestRound + 1, predicted })); } catch (e) { /* 保存失敗は無視 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [data, game, gameKey, isDigit]);
+
+  if (!latest) return null;
+
+  return (
+    <div className="kl-card" style={{ marginBottom: 16 }}>
+      <div className="kl-card-head">
+        <div className="kl-card-title">🎯 直近の結果と分析トラッキング</div>
+      </div>
+      <div className="kl-card-desc">
+        第{latest[0]}回の結果：
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, marginBottom: 4 }}>
+          {isDigit
+            ? String(latest[1]).padStart(game.digits, '0').split('').map((d, i) => (
+                <div key={i} style={numBallStyle(true, 36)}>{d}</div>
+              ))
+            : latest.slice(1, 1 + game.pick).map((n) => (
+                <div key={n} style={numBallStyle(true, 36)}>{n}</div>
+              ))}
+        </div>
+      </div>
+
+      {predCheck && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>📮 前回(第{predCheck.round}回)のエンジン予想、答え合わせ</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {predCheck.predicted.map((n) => (
+              <div key={n} style={numBallStyle(predCheck.actualSet.has(n), 32)}>{n}</div>
+            ))}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, color: predCheck.matched > 0 ? 'var(--brand-deep)' : 'var(--muted)' }}>
+            {predCheck.matched}個 一致していました
+          </div>
+        </div>
+      )}
+
+      {nextPred && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔮 次回(第{nextPred.round}回)へのエンジン予想を記録済み</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>次回の結果が反映されたら、自動でここに答え合わせが表示されます。</div>
+        </div>
+      )}
+
+      {!isDigit && track && track.length > 0 && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>📊 過去{track.length}回の的中実績</div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', height: 60 }}>
+            {track.map((t) => (
+              <div key={t.round} title={`第${t.round}回：${t.matched}個一致`} style={{
+                flex: 1,
+                background: t.matched >= 3 ? 'var(--brand-deep)' : t.matched >= 1 ? 'var(--gold)' : 'var(--surface-alt)',
+                height: `${Math.max(8, t.matched * 14)}px`, borderRadius: 3,
+              }} />
+            ))}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--muted)' }}>
+            平均 {(track.reduce((s, t) => s + t.matched, 0) / track.length).toFixed(2)}個/回 一致（各回、それ以前のデータだけで予想した場合の試算）
+          </div>
+        </div>
+      )}
+
+      {!isDigit && hotCold && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔥❄️ 直近{hotCold.window}回の出現傾向</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>よく出ている(ホット)</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {hotCold.hot.map((h) => (
+                  <div key={h.n} style={numBallStyle(true, 30)}>{h.n}</div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>しばらく出ていない(コールド)</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {hotCold.cold.map((h) => (
+                  <div key={h.n} style={numBallStyle(false, 30)}>{h.n}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ROKUYO_NAMES = ['大安', '赤口', '先勝', '友引', '先負', '仏滅'];
 const ROKUYO_TONE = {
   '大安': { c: '#1F6F5C', label: '最も良いとされる日' },
@@ -2245,6 +2430,8 @@ export default function KujiLabApp() {
                 ...seasonalKichijitsuOf(nextDraw),
               ]}
             />
+
+            <LatestResultCheck data={data} digitData={digitData} game={game} gameKey={gameKey} />
 
             <div className="kl-engine-grid">
               {/* 統計解析エンジン */}
