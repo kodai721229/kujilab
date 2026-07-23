@@ -2325,9 +2325,13 @@ export default function KujiLabApp() {
         .kl-cal-cell {
           aspect-ratio: 1; border-radius: 6px; display: flex; flex-direction: column; align-items: center;
           justify-content: center; font-size: 11px; gap: 2px; background: var(--surface-alt);
+          padding: 2px; overflow: hidden; position: relative; min-width: 0;
         }
         .kl-cal-daynum { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; }
-        .kl-cal-roku { font-size: 9.5px; }
+        .kl-cal-roku {
+          font-size: 9.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; text-align: center; padding: 0 1px;
+        }
 
         .kl-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; font-size: 11px; color: var(--muted); }
         .kl-legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
@@ -2339,6 +2343,41 @@ export default function KujiLabApp() {
         details summary { cursor: pointer; }
         ::-webkit-scrollbar { height: 6px; width: 6px; }
         ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+
+        /* ===== スマホ縦画面向けの調整 ===== */
+        @media (max-width: 480px) {
+          .kl-header-inner, .kl-viewtabs, .kl-content { padding-left: 12px; padding-right: 12px; }
+          .kl-brand-row { flex-wrap: wrap; }
+          .kl-brand-left { min-width: 0; }
+          .kl-title { font-size: 20px; }
+          .kl-sub { font-size: 10.5px; }
+          .kl-premium-toggle { font-size: 10px; }
+
+          .kl-gametabs { gap: 3px; }
+          .kl-gametab { padding: 7px 9px; font-size: 10.5px; }
+          .kl-gametab-badge { width: 22px; height: 22px; font-size: 9.5px; }
+
+          .kl-hero { padding: 12px 14px; gap: 6px; }
+          .kl-hero-date { font-size: 15px; }
+          .kl-rokuyo-chip { font-size: 11px; padding: 5px 9px; }
+
+          .kl-card { padding: 14px 14px; }
+          .kl-card-title { font-size: 14px; }
+
+          .kl-cal-grid { gap: 2px; }
+          .kl-cal-daynum { font-size: 10px; }
+          .kl-cal-roku { font-size: 7.5px; }
+          .kl-legend { font-size: 10px; gap: 7px; }
+
+          .treasure-box { transform: scale(0.82); transform-origin: center top; margin-bottom: -30px; }
+          .leo-jackpot { transform: scale(0.78); transform-origin: center top; }
+          .leo-kichi-leo svg, .kl-brand-left svg { max-width: 100%; height: auto; }
+        }
+        @media (max-width: 360px) {
+          .kl-cal-daynum { font-size: 9px; }
+          .kl-cal-roku { font-size: 6.8px; }
+          .kl-title { font-size: 18px; }
+        }
       `}</style>
 
       <div className="kl-header">
