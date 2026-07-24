@@ -462,7 +462,15 @@ function numBallStyle(active, size) {
   };
 }
 
-function computeTrackRecord(data, game, n) {
+const WEIGHT_PRESETS = [
+  { key: 'balanced', label: 'バランス型', weights: { prior: 0.3, mk: 0.3, ema: 0.2, cop: 0.2 } },
+  { key: 'freq', label: '実績重視型', weights: { prior: 0.55, mk: 0.2, ema: 0.15, cop: 0.1 } },
+  { key: 'momentum', label: '勢い重視型', weights: { prior: 0.15, mk: 0.15, ema: 0.5, cop: 0.2 } },
+  { key: 'markov', label: '相関重視型', weights: { prior: 0.2, mk: 0.5, ema: 0.15, cop: 0.15 } },
+  { key: 'pair', label: '相性重視型', weights: { prior: 0.2, mk: 0.2, ema: 0.15, cop: 0.45 } },
+];
+
+function computeTrackRecord(data, game, n, weights) {
   if (data.length < n + 5) n = Math.max(0, data.length - 5);
   if (n <= 0) return [];
   const cutoff = data.length - n;
@@ -472,7 +480,7 @@ function computeTrackRecord(data, game, n) {
   for (let i = cutoff; i < data.length; i++) {
     const prevRow = data[i - 1];
     const prevSet = new Set(prevRow.slice(1, 1 + game.pick));
-    const scores = scoreAllPick(model, prevSet, { prior: 0.3, mk: 0.3, ema: 0.2, cop: 0.2 });
+    const scores = scoreAllPick(model, prevSet, weights);
     const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, game.pick).map(([m]) => Number(m));
     const actualSet = new Set(data[i].slice(1, 1 + game.pick));
     const matched = predicted.filter((x) => actualSet.has(x)).length;
@@ -492,6 +500,20 @@ function computeTrackRecord(data, game, n) {
     }
   }
   return results;
+}
+
+// 複数の重み配合を過去n回でバックテストし、最も平均一致数が多かった配合を選ぶ
+function selectBestWeights(data, game, n) {
+  let best = null;
+  for (const preset of WEIGHT_PRESETS) {
+    const track = computeTrackRecord(data, game, n, preset.weights);
+    if (track.length === 0) continue;
+    const avg = track.reduce((s, t) => s + t.matched, 0) / track.length;
+    if (!best || avg > best.avg) {
+      best = { ...preset, avg, track };
+    }
+  }
+  return best;
 }
 
 function computeHotCold(data, game, windowSize) {
@@ -521,10 +543,13 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
   const [hotCold, setHotCold] = useState(null);
   const [predCheck, setPredCheck] = useState(null);
   const [nextPred, setNextPred] = useState(null);
+  const [bestWeights, setBestWeights] = useState(null);
 
   useEffect(() => {
-    if (isDigit || !data || data.length < 20) { setTrack(null); setHotCold(null); return; }
-    setTrack(computeTrackRecord(data, game, 15));
+    if (isDigit || !data || data.length < 20) { setTrack(null); setHotCold(null); setBestWeights(null); return; }
+    const best = selectBestWeights(data, game, 15);
+    setBestWeights(best);
+    setTrack(best ? best.track : null);
     setHotCold(computeHotCold(data, game, 30));
   }, [data, game, gameKey, isDigit]);
 
@@ -534,25 +559,27 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
     (async () => {
       const key = `pred_${gameKey}`;
       const latestRound = data[data.length - 1][0];
+      const weights = (bestWeights && bestWeights.weights) || WEIGHT_PRESETS[0].weights;
       try {
         const res = await window.storage.get(key);
         const saved = JSON.parse(res.value);
         if (saved.round === latestRound) {
           const actualSet = new Set(data[data.length - 1].slice(1, 1 + game.pick));
           const matched = saved.predicted.filter((n) => actualSet.has(n)).length;
-          if (!cancelled) setPredCheck({ round: saved.round, predicted: saved.predicted, matched, actualSet });
+          if (!cancelled) setPredCheck({ round: saved.round, predicted: saved.predicted, matched, actualSet, label: saved.label });
         }
       } catch (e) { /* 保存された前回予想なし */ }
 
       const model = buildModel(data, game);
       const prevSet = new Set(data[data.length - 1].slice(1, 1 + game.pick));
-      const scores = scoreAllPick(model, prevSet, { prior: 0.3, mk: 0.3, ema: 0.2, cop: 0.2 });
+      const scores = scoreAllPick(model, prevSet, weights);
       const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, game.pick).map(([n]) => Number(n)).sort((a, b) => a - b);
-      if (!cancelled) setNextPred({ round: latestRound + 1, predicted });
-      try { await window.storage.set(key, JSON.stringify({ round: latestRound + 1, predicted })); } catch (e) { /* 保存失敗は無視 */ }
+      const label = (bestWeights && bestWeights.label) || WEIGHT_PRESETS[0].label;
+      if (!cancelled) setNextPred({ round: latestRound + 1, predicted, label });
+      try { await window.storage.set(key, JSON.stringify({ round: latestRound + 1, predicted, label })); } catch (e) { /* 保存失敗は無視 */ }
     })();
     return () => { cancelled = true; };
-  }, [data, game, gameKey, isDigit]);
+  }, [data, game, gameKey, isDigit, bestWeights]);
 
   if (!latest) return null;
 
@@ -576,7 +603,10 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
 
       {predCheck && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>📮 前回(第{predCheck.round}回)のエンジン予想、答え合わせ</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>
+            📮 前回(第{predCheck.round}回)のエンジン予想、答え合わせ
+            {predCheck.label && <span style={{ fontSize: 10.5, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>（{predCheck.label}）</span>}
+          </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {predCheck.predicted.map((n) => (
               <div key={n} style={numBallStyle(predCheck.actualSet.has(n), 32)}>{n}</div>
@@ -591,13 +621,19 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
       {nextPred && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔮 次回(第{nextPred.round}回)へのエンジン予想を記録済み</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>次回の結果が反映されたら、自動でここに答え合わせが表示されます。</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            次回の結果が反映されたら、自動でここに答え合わせが表示されます。
+            {nextPred.label && <>採用中の配合：<b>{nextPred.label}</b>（過去15回の実績が最も良かった方式）</>}
+          </div>
         </div>
       )}
 
       {!isDigit && track && track.length > 0 && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>📊 過去{track.length}回の的中実績</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>
+            📊 過去{track.length}回の的中実績
+            {bestWeights && <span style={{ fontSize: 10.5, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>（{bestWeights.label}を採用）</span>}
+          </div>
           <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', height: 60 }}>
             {track.map((t) => (
               <div key={t.round} title={`第${t.round}回：${t.matched}個一致`} style={{
@@ -608,7 +644,8 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
             ))}
           </div>
           <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--muted)' }}>
-            平均 {(track.reduce((s, t) => s + t.matched, 0) / track.length).toFixed(2)}個/回 一致（各回、それ以前のデータだけで予想した場合の試算）
+            平均 {(track.reduce((s, t) => s + t.matched, 0) / track.length).toFixed(2)}個/回 一致
+            （5種類の配合パターンをそれぞれ過去{track.length}回で検証し、最も成績が良かったものを自動採用）
           </div>
         </div>
       )}
