@@ -536,7 +536,7 @@ function computeHotCold(data, game, windowSize) {
   return { hot, cold, window: Math.min(windowSize, data.length) };
 }
 
-function LatestResultCheck({ data, digitData, game, gameKey }) {
+function LatestResultCheck({ data, digitData, game, gameKey, carryover }) {
   const isDigit = !!game.digits;
   const latest = isDigit ? (digitData && digitData[digitData.length - 1]) : (data && data[data.length - 1]);
   const [track, setTrack] = useState(null);
@@ -544,6 +544,13 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
   const [predCheck, setPredCheck] = useState(null);
   const [nextPred, setNextPred] = useState(null);
   const [bestWeights, setBestWeights] = useState(null);
+
+  // 最新回のキャリーオーバー金額(ロト6/7のみ、無ければnull)
+  let carryAmount = null;
+  if (carryover && latest) {
+    const row = carryover.find((r) => r[0] === latest[0]);
+    if (row) carryAmount = row[1];
+  }
 
   useEffect(() => {
     if (isDigit || !data || data.length < 20) { setTrack(null); setHotCold(null); setBestWeights(null); return; }
@@ -599,6 +606,16 @@ function LatestResultCheck({ data, digitData, game, gameKey }) {
                 <div key={n} style={numBallStyle(true, 36)}>{n}</div>
               ))}
         </div>
+        {carryAmount !== null && (
+          <div style={{
+            marginTop: 6, fontSize: 13, fontWeight: 700,
+            color: carryAmount > 0 ? '#c0392b' : 'var(--muted)',
+          }}>
+            {carryAmount > 0
+              ? <>💰 次回へキャリーオーバー：{carryAmount.toLocaleString()}円</>
+              : '今回、キャリーオーバーはありません'}
+          </div>
+        )}
       </div>
 
       {predCheck && (
@@ -1663,6 +1680,7 @@ export default function KujiLabApp() {
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [gameData, setGameData] = useState(null);
   const [gameDataError, setGameDataError] = useState(null);
+  const [carryoverData, setCarryoverData] = useState({});
   useEffect(() => {
     let cancelled = false;
     const files = ['loto6', 'loto7', 'miniloto', 'bingo5', 'numbers3', 'numbers4'];
@@ -1680,6 +1698,13 @@ export default function KujiLabApp() {
         if (cancelled) return;
         setGameDataError(err.message || String(err));
       });
+    // キャリーオーバー(ロト6/7のみ)。まだファイルが無くても致命的にしない
+    Promise.all(['loto6', 'loto7'].map((f) =>
+      fetch(`/data/${f}_carryover.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    )).then(([l6, l7]) => {
+      if (cancelled) return;
+      setCarryoverData({ loto6: l6, loto7: l7 });
+    });
     return () => { cancelled = true; };
   }, []);
   const [history, setHistory] = useState([]);
@@ -2512,7 +2537,7 @@ export default function KujiLabApp() {
               ]}
             />
 
-            <LatestResultCheck data={data} digitData={digitData} game={game} gameKey={gameKey} />
+            <LatestResultCheck data={data} digitData={digitData} game={game} gameKey={gameKey} carryover={carryoverData[gameKey]} />
 
             <div className="kl-engine-grid">
               {/* 統計解析エンジン */}
