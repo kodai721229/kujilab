@@ -148,6 +148,24 @@ def parse_bingo5(text, layout):
     return rows
 
 
+def parse_carryover(text):
+    """ロト6/ロト7用キャリーオーバー抽出パーサー。
+    想定ヘッダー: 開催回,日付,...,キャリーオーバー(最終列)
+    最終列がキャリーオーバー金額(円)である前提で抽出する。
+    """
+    reader = csv.reader(io.StringIO(text))
+    header = next(reader)
+    rows = []
+    for row in reader:
+        try:
+            round_no = int(row[0])
+            carry = int(row[-1])
+            rows.append([round_no, carry])
+        except Exception:
+            continue
+    return rows
+
+
 def parse_digit_game(text, layout):
     """ナンバーズ3/4用パーサー。
     想定ヘッダー: 開催回,日付,当せん番号
@@ -214,6 +232,18 @@ def update_game(game):
 
     existing = load_existing(game)
     merged, added = merge(existing, new_rows)
+
+    # ロト6・ロト7はキャリーオーバー履歴も一緒に更新する(同じCSVの最終列)
+    if game in ("loto6", "loto7") and not zip_url:
+        try:
+            carry_rows = parse_carryover(text)
+            carry_existing = load_existing(f"{game}_carryover")
+            carry_merged, carry_added = merge(carry_existing, carry_rows)
+            if carry_added > 0:
+                save_data(f"{game}_carryover", carry_merged)
+                print(f"[update] {game}_carryover: {carry_added}件追加")
+        except Exception as e:
+            print(f"[warn] {game}_carryover: 更新に失敗しました ({e})")
 
     if added > 0:
         save_data(game, merged)
