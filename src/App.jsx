@@ -669,16 +669,30 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
             ))}
           </div>
           {premiumPreview ? (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-              {nextPred.predicted.map((n) => (
-                <span key={n} style={{ fontSize: 11, color: 'var(--brand-deep)', fontWeight: 700 }}>
-                  {n}：{nextPred.rankedAll.indexOf(n) + 1}位
-                </span>
-              ))}
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-deep)', marginBottom: 6 }}>
+                🔓 全{game.max - game.min + 1}数字のエンジン予想順位
+              </div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {nextPred.rankedAll.map((n, idx) => {
+                  const rank = idx + 1;
+                  const isPicked = nextPred.predicted.includes(n);
+                  return (
+                    <div key={n} style={{
+                      fontSize: 10.5, padding: '3px 6px', borderRadius: 5,
+                      background: isPicked ? 'var(--brand-deep)' : 'var(--surface-alt)',
+                      color: isPicked ? '#fff' : 'var(--ink)',
+                      border: isPicked ? '1px solid var(--gold)' : '1px solid var(--line)',
+                    }}>
+                      {n}：{rank}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-              🔒 各数字の予想順位はプレミアムで見られます（画面右上のスイッチでプレビュー）
+              🔒 全数字の予想順位はプレミアムで見られます（画面右上のスイッチでプレビュー）
             </div>
           )}
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
