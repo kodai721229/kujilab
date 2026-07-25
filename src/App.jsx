@@ -8,12 +8,12 @@ const SETSU_BOUNDS = [["2024-02-04", "立春"], ["2024-03-05", "啓蟄"], ["2024
 
 // ===== ゲーム定義 =====
 const GAMES = {
-  loto6: { label: 'ロト6', short: 'L6', min: 1, max: 43, pick: 6, hasData: true, draw: '毎週月・木', color: '#1F6F5C', jackpot: { count: 1, message: 'これで君も\n億万長者だー！！', align: 'end' } },
-  loto7: { label: 'ロト7', short: 'L7', min: 1, max: 37, pick: 7, hasData: true, draw: '毎週金', color: '#2A6F8C', jackpot: { count: 1, message: 'これで君も\n億万長者だー！！', align: 'end' } },
-  miniloto: { label: 'ミニロト', short: 'ML', min: 1, max: 31, pick: 5, hasData: true, draw: '毎週火', color: '#6F5C1F', jackpot: { count: 3, message: '1000万円\nゲーット！！', align: 'end' } },
+  loto6: { label: 'ロト6', short: 'L6', min: 1, max: 43, pick: 6, bonus: 1, hasData: true, draw: '毎週月・木', color: '#1F6F5C', jackpot: { count: 1, message: 'これで君も\n億万長者だー！！', align: 'end' } },
+  loto7: { label: 'ロト7', short: 'L7', min: 1, max: 37, pick: 7, bonus: 2, hasData: true, draw: '毎週金', color: '#2A6F8C', jackpot: { count: 1, message: 'これで君も\n億万長者だー！！', align: 'end' } },
+  miniloto: { label: 'ミニロト', short: 'ML', min: 1, max: 31, pick: 5, bonus: 1, hasData: true, draw: '毎週火', color: '#6F5C1F', jackpot: { count: 3, message: '1000万円\nゲーット！！', align: 'end' } },
   numbers3: { label: 'ナンバーズ3', short: 'N3', digits: 3, hasData: true, draw: '平日毎日', color: '#7A4A9C', jackpot: { count: 3, message: '高額当選だー！！', align: 'end' } },
   numbers4: { label: 'ナンバーズ4', short: 'N4', digits: 4, hasData: true, draw: '平日毎日', color: '#9C4A6F', jackpot: { count: 3, message: '高額当選だー！！', align: 'end' } },
-  bingo5: { label: 'ビンゴ5', short: 'B5', min: 1, max: 40, pick: 8, hasData: true, draw: '毎週水', color: '#4A7A9C', jackpot: { count: 5, message: 'GO!GO!\n高額当選GOー！', align: 'end' } },
+  bingo5: { label: 'ビンゴ5', short: 'B5', min: 1, max: 40, pick: 8, bonus: 0, hasData: true, draw: '毎週水', color: '#4A7A9C', jackpot: { count: 5, message: 'GO!GO!\n高額当選GOー！', align: 'end' } },
 };
 const GAME_ORDER = ['loto6', 'loto7', 'miniloto', 'numbers3', 'numbers4', 'bingo5'];
 
@@ -536,7 +536,7 @@ function computeHotCold(data, game, windowSize) {
   return { hot, cold, window: Math.min(windowSize, data.length) };
 }
 
-function LatestResultCheck({ data, digitData, game, gameKey, carryover }) {
+function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumPreview }) {
   const isDigit = !!game.digits;
   const latest = isDigit ? (digitData && digitData[digitData.length - 1]) : (data && data[data.length - 1]);
   const [track, setTrack] = useState(null);
@@ -565,25 +565,31 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover }) {
     let cancelled = false;
     (async () => {
       const key = `pred_${gameKey}`;
-      const latestRound = data[data.length - 1][0];
+      const latestRow = data[data.length - 1];
+      const latestRound = latestRow[0];
       const weights = (bestWeights && bestWeights.weights) || WEIGHT_PRESETS[0].weights;
       try {
         const res = await window.storage.get(key);
         const saved = JSON.parse(res.value);
-        if (saved.round === latestRound) {
-          const actualSet = new Set(data[data.length - 1].slice(1, 1 + game.pick));
-          const matched = saved.predicted.filter((n) => actualSet.has(n)).length;
-          if (!cancelled) setPredCheck({ round: saved.round, predicted: saved.predicted, matched, actualSet, label: saved.label });
+        if (saved.round === latestRound && saved.rankedAll) {
+          const mainNums = latestRow.slice(1, 1 + game.pick);
+          const bonusNums = game.bonus ? latestRow.slice(1 + game.pick, 1 + game.pick + game.bonus) : [];
+          const ranks = [
+            ...mainNums.map((n) => ({ n, rank: saved.rankedAll.indexOf(n) + 1, isBonus: false })),
+            ...bonusNums.map((n) => ({ n, rank: saved.rankedAll.indexOf(n) + 1, isBonus: true })),
+          ];
+          if (!cancelled) setPredCheck({ round: saved.round, label: saved.label, ranks });
         }
       } catch (e) { /* 保存された前回予想なし */ }
 
       const model = buildModel(data, game);
-      const prevSet = new Set(data[data.length - 1].slice(1, 1 + game.pick));
+      const prevSet = new Set(latestRow.slice(1, 1 + game.pick));
       const scores = scoreAllPick(model, prevSet, weights);
-      const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, game.pick).map(([n]) => Number(n)).sort((a, b) => a - b);
+      const rankedAll = Object.entries(scores).sort((a, b) => b[1] - a[1]).map(([n]) => Number(n));
+      const predicted = rankedAll.slice(0, game.pick).sort((a, b) => a - b);
       const label = (bestWeights && bestWeights.label) || WEIGHT_PRESETS[0].label;
-      if (!cancelled) setNextPred({ round: latestRound + 1, predicted, label });
-      try { await window.storage.set(key, JSON.stringify({ round: latestRound + 1, predicted, label })); } catch (e) { /* 保存失敗は無視 */ }
+      if (!cancelled) setNextPred({ round: latestRound + 1, predicted, label, rankedAll });
+      try { await window.storage.set(key, JSON.stringify({ round: latestRound + 1, predicted, label, rankedAll })); } catch (e) { /* 保存失敗は無視 */ }
     })();
     return () => { cancelled = true; };
   }, [data, game, gameKey, isDigit, bestWeights]);
@@ -597,14 +603,26 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover }) {
       </div>
       <div className="kl-card-desc">
         第{latest[0]}回の結果：
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, marginBottom: 4 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, marginBottom: 4, alignItems: 'center' }}>
           {isDigit
             ? String(latest[1]).padStart(game.digits, '0').split('').map((d, i) => (
                 <div key={i} style={numBallStyle(true, 36)}>{d}</div>
               ))
-            : latest.slice(1, 1 + game.pick).map((n) => (
-                <div key={n} style={numBallStyle(true, 36)}>{n}</div>
-              ))}
+            : (
+              <>
+                {latest.slice(1, 1 + game.pick).map((n) => (
+                  <div key={'m' + n} style={numBallStyle(true, 36)}>{n}</div>
+                ))}
+                {game.bonus > 0 && (
+                  <>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', margin: '0 2px' }}>B</span>
+                    {latest.slice(1 + game.pick, 1 + game.pick + game.bonus).map((n, i) => (
+                      <div key={'b' + i} style={{ ...numBallStyle(true, 32), background: '#c0392b', border: '2px solid #e0b040' }}>{n}</div>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
         </div>
         {carryAmount !== null && (
           <div style={{
@@ -621,23 +639,48 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover }) {
       {predCheck && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>
-            📮 前回(第{predCheck.round}回)のエンジン予想、答え合わせ
+            📮 前回(第{predCheck.round}回)の本数字・ボーナス数字は、エンジン予想で何位だったか
             {predCheck.label && <span style={{ fontSize: 10.5, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>（{predCheck.label}）</span>}
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {predCheck.predicted.map((n) => (
-              <div key={n} style={numBallStyle(predCheck.actualSet.has(n), 32)}>{n}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {predCheck.ranks.map(({ n, rank, isBonus }) => (
+              <div key={(isBonus ? 'b' : 'm') + n} style={{
+                fontSize: 12, padding: '5px 9px', borderRadius: 6, fontWeight: 700,
+                background: rank <= game.pick ? 'var(--brand-deep)' : (isBonus ? '#fdf1e6' : 'var(--surface-alt)'),
+                color: rank <= game.pick ? '#fff' : 'var(--ink)',
+                border: isBonus ? '1.5px solid #c0392b' : '1px solid var(--line)',
+              }}>
+                {isBonus ? 'B' : ''}{n}：{rank}位
+              </div>
             ))}
           </div>
-          <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, color: predCheck.matched > 0 ? 'var(--brand-deep)' : 'var(--muted)' }}>
-            {predCheck.matched}個 一致していました
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
+            色付きの数字は、エンジンの予想上位{game.pick}位以内に入っていたことを示します
           </div>
         </div>
       )}
 
       {nextPred && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔮 次回(第{nextPred.round}回)へのエンジン予想を記録済み</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔮 次回(第{nextPred.round}回)へのエンジン予想</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            {nextPred.predicted.map((n) => (
+              <div key={n} style={numBallStyle(true, 34)}>{n}</div>
+            ))}
+          </div>
+          {premiumPreview ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+              {nextPred.predicted.map((n) => (
+                <span key={n} style={{ fontSize: 11, color: 'var(--brand-deep)', fontWeight: 700 }}>
+                  {n}：{nextPred.rankedAll.indexOf(n) + 1}位
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+              🔒 各数字の予想順位はプレミアムで見られます（画面右上のスイッチでプレビュー）
+            </div>
+          )}
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
             次回の結果が反映されたら、自動でここに答え合わせが表示されます。
             {nextPred.label && <>採用中の配合：<b>{nextPred.label}</b>（過去15回の実績が最も良かった方式）</>}
@@ -2537,7 +2580,7 @@ export default function KujiLabApp() {
               ]}
             />
 
-            <LatestResultCheck data={data} digitData={digitData} game={game} gameKey={gameKey} carryover={carryoverData[gameKey]} />
+            <LatestResultCheck data={data} digitData={digitData} game={game} gameKey={gameKey} carryover={carryoverData[gameKey]} premiumPreview={premiumPreview} />
 
             <div className="kl-engine-grid">
               {/* 統計解析エンジン */}
