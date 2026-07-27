@@ -516,6 +516,37 @@ function selectBestWeights(data, game, n) {
   return best;
 }
 
+// 全数字それぞれの詳細分析データ(1〜maxの昇順)を計算
+function computeNumberDetails(data, game, weights) {
+  const model = buildModel(data, game);
+  const latestRow = data[data.length - 1];
+  const prevSet = new Set(latestRow.slice(1, 1 + game.pick));
+  const scores = scoreAllPick(model, prevSet, weights);
+  const rankedAll = Object.entries(scores).sort((a, b) => b[1] - a[1]).map(([n]) => Number(n));
+  const recent30 = data.slice(-30);
+  const recentFreq = {};
+  for (let n = game.min; n <= game.max; n++) recentFreq[n] = 0;
+  recent30.forEach((r) => r.slice(1, 1 + game.pick).forEach((n) => { recentFreq[n] += 1; }));
+
+  const list = [];
+  for (let n = game.min; n <= game.max; n++) {
+    const inPrev = prevSet.has(n);
+    const p11 = model.markov[n]['11'] + model.markov[n]['01'];
+    const p10 = model.markov[n]['10'] + model.markov[n]['00'];
+    const mkRatio = inPrev ? (p11 > 0 ? model.markov[n]['11'] / p11 : null) : (p10 > 0 ? model.markov[n]['10'] / p10 : null);
+    list.push({
+      n,
+      rank: rankedAll.indexOf(n) + 1,
+      freqTotal: model.freq[n],
+      freqRecent30: recentFreq[n],
+      emaPercent: Math.round(model.ema[n] * 100),
+      markovPercent: mkRatio === null ? null : Math.round(mkRatio * 100),
+      wasInPrev: inPrev,
+    });
+  }
+  return { list, total: data.length };
+}
+
 function computeHotCold(data, game, windowSize) {
   const recent = data.slice(-windowSize);
   const freq = {};
@@ -536,6 +567,78 @@ function computeHotCold(data, game, windowSize) {
   return { hot, cold, window: Math.min(windowSize, data.length) };
 }
 
+// 全数字の詳細分析パネル(1〜max昇順、クリックされた数字をハイライト)
+function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onClose }) {
+  const details = useMemo(() => computeNumberDetails(data, game, weights), [data, game, weights]);
+  const rowRefs = React.useRef({});
+
+  useEffect(() => {
+    if (highlight != null && rowRefs.current[highlight]) {
+      rowRefs.current[highlight].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [highlight]);
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: '2px solid var(--brand-deep)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 800 }}>🔍 全数字の詳細分析（1〜{game.max}）</div>
+        <button onClick={onClose} className="kl-btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }}>閉じる</button>
+      </div>
+
+      {!premiumPreview ? (
+        <div style={{
+          padding: '20px 16px', textAlign: 'center', background: 'var(--surface-alt)',
+          borderRadius: 8, border: '1px dashed var(--line)',
+        }}>
+          <div style={{ fontSize: 22, marginBottom: 6 }}>🔒</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>詳細分析はプレミアム限定です</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            通算出現回数・直近30回の出現・勢い・相関・予想順位を、数字ごとに全部見られます。<br />
+            画面右上の「プレビュー」スイッチでお試しいただけます。
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 8 }}>
+            全{details.total}回のデータをもとに算出。「勢い」は直近の出現傾向、「相関」は前回との出やすさの関係を示します。
+          </div>
+          <div style={{ maxHeight: 420, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+              <thead>
+                <tr style={{ position: 'sticky', top: 0, background: 'var(--surface-alt)', zIndex: 1 }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>数字</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center' }}>予想順位</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center' }}>通算出現</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center' }}>直近30回</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center' }}>勢い</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center' }}>相関</th>
+                </tr>
+              </thead>
+              <tbody>
+                {details.list.map((d) => (
+                  <tr key={d.n} ref={(el) => { rowRefs.current[d.n] = el; }} style={{
+                    borderTop: '1px solid var(--line)',
+                    background: d.n === highlight ? '#fff4d6' : 'transparent',
+                  }}>
+                    <td style={{ padding: '6px 8px', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{d.n}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: d.rank <= game.pick ? 800 : 400, color: d.rank <= game.pick ? 'var(--brand-deep)' : 'inherit' }}>
+                      {d.rank}位
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.freqTotal}回</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.freqRecent30}回</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.emaPercent}%</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.markovPercent === null ? '—' : `${d.markovPercent}%`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumPreview }) {
   const isDigit = !!game.digits;
   const latest = isDigit ? (digitData && digitData[digitData.length - 1]) : (data && data[data.length - 1]);
@@ -544,6 +647,9 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
   const [predCheck, setPredCheck] = useState(null);
   const [nextPred, setNextPred] = useState(null);
   const [bestWeights, setBestWeights] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailHighlight, setDetailHighlight] = useState(null);
+  const openDetail = (n) => { setDetailHighlight(n); setDetailOpen(true); };
 
   // 最新回のキャリーオーバー金額(ロト6/7のみ、無ければnull)
   let carryAmount = null;
@@ -611,19 +717,20 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
             : (
               <>
                 {latest.slice(1, 1 + game.pick).map((n) => (
-                  <div key={'m' + n} style={numBallStyle(true, 36)}>{n}</div>
+                  <div key={'m' + n} style={{ ...numBallStyle(true, 36), cursor: 'pointer' }} onClick={() => openDetail(n)}>{n}</div>
                 ))}
                 {game.bonus > 0 && (
                   <>
                     <span style={{ fontSize: 11, color: 'var(--muted)', margin: '0 2px' }}>B</span>
                     {latest.slice(1 + game.pick, 1 + game.pick + game.bonus).map((n, i) => (
-                      <div key={'b' + i} style={{ ...numBallStyle(true, 32), background: '#c0392b', border: '2px solid #e0b040' }}>{n}</div>
+                      <div key={'b' + i} style={{ ...numBallStyle(true, 32), background: '#c0392b', border: '2px solid #e0b040', cursor: 'pointer' }} onClick={() => openDetail(n)}>{n}</div>
                     ))}
                   </>
                 )}
               </>
             )}
         </div>
+        {!isDigit && <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>数字をタップすると詳細分析が見られます</div>}
         {carryAmount !== null && (
           <div style={{
             marginTop: 6, fontSize: 13, fontWeight: 700,
@@ -642,20 +749,23 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
             📮 前回(第{predCheck.round}回)の本数字・ボーナス数字は、エンジン予想で何位だったか
             {predCheck.label && <span style={{ fontSize: 10.5, fontWeight: 500, color: 'var(--muted)', marginLeft: 6 }}>（{predCheck.label}）</span>}
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {predCheck.ranks.map(({ n, rank, isBonus }) => (
-              <div key={(isBonus ? 'b' : 'm') + n} style={{
-                fontSize: 12, padding: '5px 9px', borderRadius: 6, fontWeight: 700,
-                background: rank <= game.pick ? 'var(--brand-deep)' : (isBonus ? '#fdf1e6' : 'var(--surface-alt)'),
-                color: rank <= game.pick ? '#fff' : 'var(--ink)',
-                border: isBonus ? '1.5px solid #c0392b' : '1px solid var(--line)',
-              }}>
-                {isBonus ? 'B' : ''}{n}：{rank}位
+              <div key={(isBonus ? 'b' : 'm') + n}
+                onClick={() => openDetail(n)}
+                style={{
+                  cursor: 'pointer', textAlign: 'center', minWidth: 52, padding: '6px 8px', borderRadius: 8,
+                  background: rank <= game.pick ? 'var(--brand-deep)' : (isBonus ? '#fdf1e6' : 'var(--surface-alt)'),
+                  color: rank <= game.pick ? '#fff' : 'var(--ink)',
+                  border: isBonus ? '1.5px solid #c0392b' : '1px solid var(--line)',
+                }}>
+                <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{isBonus ? 'B' : ''}{n}</div>
+                <div style={{ fontSize: 10, opacity: 0.9, marginTop: 1 }}>予想{rank}位</div>
               </div>
             ))}
           </div>
           <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)' }}>
-            色付きの数字は、エンジンの予想上位{game.pick}位以内に入っていたことを示します
+            色付きは、エンジンの予想上位{game.pick}位以内に入っていたことを示します。数字をタップすると詳細分析が見られます
           </div>
         </div>
       )}
@@ -663,28 +773,29 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
       {nextPred && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔮 次回(第{nextPred.round}回)へのエンジン予想</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {nextPred.predicted.map((n) => (
-              <div key={n} style={numBallStyle(true, 34)}>{n}</div>
+              <div key={n} style={{ ...numBallStyle(true, 34), cursor: 'pointer' }} onClick={() => openDetail(n)}>{n}</div>
             ))}
           </div>
           {premiumPreview ? (
             <div style={{ marginBottom: 6 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-deep)', marginBottom: 6 }}>
-                🔓 全{game.max - game.min + 1}数字のエンジン予想順位
+                🔓 全{game.max - game.min + 1}数字のエンジン予想順位（数字順）
               </div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                {nextPred.rankedAll.map((n, idx) => {
-                  const rank = idx + 1;
+                {Array.from({ length: game.max - game.min + 1 }, (_, i) => game.min + i).map((n) => {
+                  const rank = nextPred.rankedAll.indexOf(n) + 1;
                   const isPicked = nextPred.predicted.includes(n);
                   return (
-                    <div key={n} style={{
-                      fontSize: 10.5, padding: '3px 6px', borderRadius: 5,
+                    <div key={n} onClick={() => openDetail(n)} style={{
+                      cursor: 'pointer', textAlign: 'center', minWidth: 38, padding: '4px 5px', borderRadius: 6,
                       background: isPicked ? 'var(--brand-deep)' : 'var(--surface-alt)',
                       color: isPicked ? '#fff' : 'var(--ink)',
                       border: isPicked ? '1px solid var(--gold)' : '1px solid var(--line)',
                     }}>
-                      {n}：{rank}
+                      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{n}</div>
+                      <div style={{ fontSize: 9, opacity: 0.85 }}>{rank}位</div>
                     </div>
                   );
                 })}
@@ -700,6 +811,14 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
             {nextPred.label && <>採用中の配合：<b>{nextPred.label}</b>（過去15回の実績が最も良かった方式）</>}
           </div>
         </div>
+      )}
+
+      {!isDigit && detailOpen && (
+        <NumberDetailPanel
+          data={data} game={game} weights={(bestWeights && bestWeights.weights) || WEIGHT_PRESETS[0].weights}
+          premiumPreview={premiumPreview} highlight={detailHighlight}
+          onClose={() => setDetailOpen(false)}
+        />
       )}
 
       {!isDigit && track && track.length > 0 && (
