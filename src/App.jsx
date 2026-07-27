@@ -570,13 +570,19 @@ function computeHotCold(data, game, windowSize) {
 // 全数字の詳細分析パネル(1〜max昇順、クリックされた数字をハイライト)
 function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onClose }) {
   const details = useMemo(() => computeNumberDetails(data, game, weights), [data, game, weights]);
+  const [sortMode, setSortMode] = useState('number'); // 'number' | 'rank'
+  const sortedList = useMemo(() => {
+    const list = details.list.slice();
+    if (sortMode === 'rank') list.sort((a, b) => a.rank - b.rank);
+    return list;
+  }, [details, sortMode]);
   const rowRefs = React.useRef({});
 
   useEffect(() => {
     if (highlight != null && rowRefs.current[highlight]) {
       rowRefs.current[highlight].scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
-  }, [highlight]);
+  }, [highlight, sortMode]);
 
   return (
     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '2px solid var(--brand-deep)' }}>
@@ -599,8 +605,22 @@ function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onC
         </div>
       ) : (
         <>
-          <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 8 }}>
-            全{details.total}回のデータをもとに算出。「勢い」は直近の出現傾向、「相関」は前回との出やすさの関係を示します。
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+              全{details.total}回のデータをもとに算出。「勢い」は直近の出現傾向、「相関」は前回との出やすさの関係を示します。
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <button onClick={() => setSortMode('number')} style={{
+                fontSize: 10.5, padding: '3px 9px', borderRadius: 5, cursor: 'pointer',
+                background: sortMode === 'number' ? 'var(--brand-deep)' : '#fff',
+                color: sortMode === 'number' ? '#fff' : 'var(--ink)', border: '1px solid var(--line)',
+              }}>数字順</button>
+              <button onClick={() => setSortMode('rank')} style={{
+                fontSize: 10.5, padding: '3px 9px', borderRadius: 5, cursor: 'pointer',
+                background: sortMode === 'rank' ? 'var(--brand-deep)' : '#fff',
+                color: sortMode === 'rank' ? '#fff' : 'var(--ink)', border: '1px solid var(--line)',
+              }}>順位順</button>
+            </div>
           </div>
           <div style={{ maxHeight: 420, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
@@ -615,7 +635,7 @@ function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onC
                 </tr>
               </thead>
               <tbody>
-                {details.list.map((d) => (
+                {sortedList.map((d) => (
                   <tr key={d.n} ref={(el) => { rowRefs.current[d.n] = el; }} style={{
                     borderTop: '1px solid var(--line)',
                     background: d.n === highlight ? '#fff4d6' : 'transparent',
@@ -649,6 +669,7 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
   const [bestWeights, setBestWeights] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailHighlight, setDetailHighlight] = useState(null);
+  const [nextPredSort, setNextPredSort] = useState('number'); // 'number' | 'rank'
   const openDetail = (n) => { setDetailHighlight(n); setDetailOpen(true); };
 
   // 最新回のキャリーオーバー金額(ロト6/7のみ、無ければnull)
@@ -780,11 +801,28 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
           </div>
           {premiumPreview ? (
             <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-deep)', marginBottom: 6 }}>
-                🔓 全{game.max - game.min + 1}数字のエンジン予想順位（数字順）
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand-deep)' }}>
+                  🔓 全{game.max - game.min + 1}数字のエンジン予想順位
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={() => setNextPredSort('number')} style={{
+                    fontSize: 10.5, padding: '3px 9px', borderRadius: 5, cursor: 'pointer',
+                    background: nextPredSort === 'number' ? 'var(--brand-deep)' : '#fff',
+                    color: nextPredSort === 'number' ? '#fff' : 'var(--ink)', border: '1px solid var(--line)',
+                  }}>数字順</button>
+                  <button onClick={() => setNextPredSort('rank')} style={{
+                    fontSize: 10.5, padding: '3px 9px', borderRadius: 5, cursor: 'pointer',
+                    background: nextPredSort === 'rank' ? 'var(--brand-deep)' : '#fff',
+                    color: nextPredSort === 'rank' ? '#fff' : 'var(--ink)', border: '1px solid var(--line)',
+                  }}>順位順</button>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                {Array.from({ length: game.max - game.min + 1 }, (_, i) => game.min + i).map((n) => {
+                {(nextPredSort === 'number'
+                  ? Array.from({ length: game.max - game.min + 1 }, (_, i) => game.min + i)
+                  : nextPred.rankedAll
+                ).map((n) => {
                   const rank = nextPred.rankedAll.indexOf(n) + 1;
                   const isPicked = nextPred.predicted.includes(n);
                   return (
