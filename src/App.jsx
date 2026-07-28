@@ -794,6 +794,9 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
       {nextPred && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line)' }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>🔮 次回(第{nextPred.round}回)へのエンジン予想</div>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 8 }}>
+            ※ 抽せんは完全にランダムなため、どの数字を選んでも当せん確率は変わりません。統計的な傾向を楽しむための予想です。
+          </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {nextPred.predicted.map((n) => (
               <div key={n} style={{ ...numBallStyle(true, 34), cursor: 'pointer' }} onClick={() => openDetail(n)}>{n}</div>
@@ -2697,7 +2700,7 @@ export default function KujiLabApp() {
 
       {gameKey !== 'fortune' && (
       <div className="kl-viewtabs">
-        <button className={'kl-viewtab' + (view === 'predict' ? ' active' : '')} onClick={() => setView('predict')}>予測エンジン</button>
+        <button className={'kl-viewtab' + (view === 'predict' ? ' active' : '')} onClick={() => setView('predict')}>傾向分析</button>
         <button className={'kl-viewtab' + (view === 'calendar' ? ' active' : '')} onClick={() => setView('calendar')}>吉日カレンダー</button>
         <button className={'kl-viewtab' + (view === 'history' ? ' active' : '')} onClick={() => setView('history')}>記録</button>
       </div>
@@ -3106,6 +3109,7 @@ export default function KujiLabApp() {
 
         <div className="kl-footer-note">
           本アプリは公表されている抽せん結果の統計分析であり、当せんを保証するものではありません。<br />
+          抽せんは完全にランダムであり、どの数字を選んでも当せん確率は変わりません。<br />
           購入は無理のない範囲でお楽しみください。プレミアム表示は現在デザインプレビューであり、実際の課金は行われません。
         </div>
       </div>
