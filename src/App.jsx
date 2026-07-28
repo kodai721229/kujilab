@@ -480,7 +480,8 @@ function computeTrackRecord(data, game, n, weights) {
   for (let i = cutoff; i < data.length; i++) {
     const prevRow = data[i - 1];
     const prevSet = new Set(prevRow.slice(1, 1 + game.pick));
-    const scores = scoreAllPick(model, prevSet, weights);
+    const excludedSet = computeExclusions(data.slice(0, i), game);
+    const scores = scoreAllPick(model, prevSet, weights, excludedSet);
     const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, game.pick).map(([m]) => Number(m));
     const actualSet = new Set(data[i].slice(1, 1 + game.pick));
     const matched = predicted.filter((x) => actualSet.has(x)).length;
@@ -521,7 +522,8 @@ function computeNumberDetails(data, game, weights) {
   const model = buildModel(data, game);
   const latestRow = data[data.length - 1];
   const prevSet = new Set(latestRow.slice(1, 1 + game.pick));
-  const scores = scoreAllPick(model, prevSet, weights);
+  const excludedSet = computeExclusions(data, game);
+  const scores = scoreAllPick(model, prevSet, weights, excludedSet);
   const rankedAll = Object.entries(scores).sort((a, b) => b[1] - a[1]).map(([n]) => Number(n));
   const recent30 = data.slice(-30);
   const recentFreq = {};
@@ -542,6 +544,7 @@ function computeNumberDetails(data, game, weights) {
       emaPercent: Math.round(model.ema[n] * 100),
       markovPercent: mkRatio === null ? null : Math.round(mkRatio * 100),
       wasInPrev: inPrev,
+      excluded: excludedSet.has(n),
     });
   }
   return { list, total: data.length };
@@ -607,7 +610,8 @@ function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onC
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
             <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-              全{details.total}回のデータをもとに算出。「勢い」は直近の出現傾向、「相関」は前回との出やすさの関係を示します。
+              全{details.total}回のデータをもとに算出。「勢い」は直近の出現傾向、「相関」は前回との出やすさの関係を示します。<br />
+              🚫は「出過ぎ・連続出現」を理由にエンジンの予想候補から除外されている数字です。
             </div>
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
               <button onClick={() => setSortMode('number')} style={{
@@ -632,15 +636,17 @@ function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onC
                   <th style={{ padding: '6px 8px', textAlign: 'center' }}>直近30回</th>
                   <th style={{ padding: '6px 8px', textAlign: 'center' }}>勢い</th>
                   <th style={{ padding: '6px 8px', textAlign: 'center' }}>相関</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center' }}>除外</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedList.map((d) => (
                   <tr key={d.n} ref={(el) => { rowRefs.current[d.n] = el; }} style={{
                     borderTop: '1px solid var(--line)',
-                    background: d.n === highlight ? '#fff4d6' : 'transparent',
+                    background: d.n === highlight ? '#fff4d6' : (d.excluded ? '#f3f3f3' : 'transparent'),
+                    opacity: d.excluded ? 0.55 : 1,
                   }}>
-                    <td style={{ padding: '6px 8px', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace" }}>{d.n}</td>
+                    <td style={{ padding: '6px 8px', fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", textDecoration: d.excluded ? 'line-through' : 'none' }}>{d.n}</td>
                     <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: d.rank <= game.pick ? 800 : 400, color: d.rank <= game.pick ? 'var(--brand-deep)' : 'inherit' }}>
                       {d.rank}位
                     </td>
@@ -648,6 +654,7 @@ function NumberDetailPanel({ data, game, weights, premiumPreview, highlight, onC
                     <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.freqRecent30}回</td>
                     <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.emaPercent}%</td>
                     <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.markovPercent === null ? '—' : `${d.markovPercent}%`}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>{d.excluded ? '🚫' : ''}</td>
                   </tr>
                 ))}
               </tbody>
@@ -711,7 +718,8 @@ function LatestResultCheck({ data, digitData, game, gameKey, carryover, premiumP
 
       const model = buildModel(data, game);
       const prevSet = new Set(latestRow.slice(1, 1 + game.pick));
-      const scores = scoreAllPick(model, prevSet, weights);
+      const excludedSet = computeExclusions(data, game);
+      const scores = scoreAllPick(model, prevSet, weights, excludedSet);
       const rankedAll = Object.entries(scores).sort((a, b) => b[1] - a[1]).map(([n]) => Number(n));
       const predicted = rankedAll.slice(0, game.pick).sort((a, b) => a - b);
       const label = (bestWeights && bestWeights.label) || WEIGHT_PRESETS[0].label;
@@ -1067,11 +1075,57 @@ function pairRatio(model, a, b) {
   if (exp <= 0) return 1;
   return (pairCounter[key] || 0) / exp;
 }
-function scoreAllPick(model, prevSet, weights) {
+// ユーザー提案の除外ルール(通算出現トップ3・直近急増・直近2回連続)を計算
+// 「直近20回で6回」「直近5回で3回」は、ロト6(43個中6個、約2120回分)を基準にした
+// 倍率(平均の約2.151倍/4.298倍)を、他のゲームの規模に比例スケールして適用する
+function computeExclusions(data, game) {
+  const excluded = new Set();
+  if (!data || data.length < 25) return excluded;
+  const range = game.max - game.min + 1;
+
+  const avg20 = (Math.min(20, data.length) * game.pick) / range;
+  const th20 = Math.max(1, Math.round(avg20 * 2.151));
+  const avg5 = (Math.min(5, data.length) * game.pick) / range;
+  const th5 = Math.max(1, Math.round(avg5 * 4.298));
+
+  // ① 全過去回のボーナス数字も含めた通算出現回数トップ3を除外(回数を重ねても自動で追従する)
+  const totalCount = {};
+  for (let n = game.min; n <= game.max; n++) totalCount[n] = 0;
+  data.forEach((r) => r.slice(1).forEach((n) => { if (totalCount[n] != null) totalCount[n] += 1; }));
+  const topByTotal = Object.entries(totalCount)
+    .sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))
+    .slice(0, 3)
+    .map(([n]) => Number(n));
+  topByTotal.forEach((n) => excluded.add(n));
+
+  // ② 直近20回で急に出すぎている数字
+  const last20 = data.slice(-20);
+  const cnt20 = {};
+  last20.forEach((r) => r.slice(1, 1 + game.pick).forEach((n) => { cnt20[n] = (cnt20[n] || 0) + 1; }));
+  for (const n in cnt20) if (cnt20[n] >= th20) excluded.add(Number(n));
+
+  // ③ 直近5回でさらに急に出すぎている数字
+  const last5 = data.slice(-5);
+  const cnt5 = {};
+  last5.forEach((r) => r.slice(1, 1 + game.pick).forEach((n) => { cnt5[n] = (cnt5[n] || 0) + 1; }));
+  for (const n in cnt5) if (cnt5[n] >= th5) excluded.add(Number(n));
+
+  // ④ 直近2回連続で出ている数字
+  const last2 = data.slice(-2);
+  if (last2.length === 2) {
+    const setA = new Set(last2[0].slice(1, 1 + game.pick));
+    const setB = new Set(last2[1].slice(1, 1 + game.pick));
+    setA.forEach((n) => { if (setB.has(n)) excluded.add(n); });
+  }
+  return excluded;
+}
+
+function scoreAllPick(model, prevSet, weights, excludedSet) {
   const { total, freq, ema, markov, min, max, pick } = model;
   const scores = {};
   const uniform = pick / (max - min + 1);
   for (let n = min; n <= max; n++) {
+    if (excludedSet && excludedSet.has(n)) { scores[n] = -Infinity; continue; }
     const prior = freq[n] / (total * pick);
     const p11 = markov[n]['11'] + markov[n]['01'];
     const p10 = markov[n]['10'] + markov[n]['00'];
@@ -1215,7 +1269,8 @@ function runLiveBacktest(fullData, trainEnd, weights, sumRange, game) {
     const prevNums = test[i].slice(1, 1 + pick);
     const actual = new Set(test[i + 1].slice(1, 1 + pick));
     const prevSet = new Set(prevNums);
-    const scores = scoreAllPick(model, prevSet, weights);
+    const excludedSet = computeExclusions(train.concat(test.slice(0, i + 1)), game);
+    const scores = scoreAllPick(model, prevSet, weights, excludedSet);
     const predicted = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, pick).map(([n]) => Number(n));
     const matches = predicted.filter((n) => actual.has(n)).length;
     if (matches >= kThreshold) hitsK++;
@@ -1956,7 +2011,8 @@ export default function KujiLabApp() {
   const digitModel = useMemo(() => (digitData ? buildDigitModel(digitData, game.digits) : null), [digitData, game]);
   const latest = data ? data[data.length - 1] : null;
   const latestSet = useMemo(() => (latest ? new Set(latest.slice(1, 1 + game.pick)) : new Set()), [latest, game]);
-  const scores = useMemo(() => (model ? scoreAllPick(model, latestSet, weights) : null), [model, latestSet, weights]);
+  const excludedSet = useMemo(() => (data ? computeExclusions(data, game) : new Set()), [data, game]);
+  const scores = useMemo(() => (model ? scoreAllPick(model, latestSet, weights, excludedSet) : null), [model, latestSet, weights, excludedSet]);
   const tripleCounter = useMemo(() => (data ? buildTripleCounter(data, game.pick) : null), [data, game]);
   const [backtestResult, setBacktestResult] = useState(null);
   const [backtestRunning, setBacktestRunning] = useState(false);
