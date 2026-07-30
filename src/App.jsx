@@ -2733,7 +2733,7 @@ export default function KujiLabApp() {
               </div>
             </div>
             <div className="kl-premium-toggle">
-              <span>プレビュー：{premiumPreview ? 'プレミアム' : '無料'}</span>
+              <span>{premiumPreview ? '🎉 無料公開キャンペーン中' : 'プレビュー：無料'}</span>
               <button className={'kl-switch' + (premiumPreview ? ' on' : '')} onClick={() => setPremiumPreview(!premiumPreview)}>
                 <span className="kl-switch-knob"></span>
               </button>
