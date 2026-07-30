@@ -149,9 +149,10 @@ def parse_bingo5(text, layout):
 
 
 def parse_carryover(text):
-    """ロト6/ロト7用キャリーオーバー抽出パーサー。
-    想定ヘッダー: 開催回,日付,...,キャリーオーバー(最終列)
-    最終列がキャリーオーバー金額(円)である前提で抽出する。
+    """ロト6/ロト7用キャリーオーバー抽出パーサー(mk-mode.com由来のCSV形式)。
+    実際の列構成は「...,キャリーオーバー,販売実績」の順(販売実績が最終列)。
+    以前は最終列をキャリーオーバーとして誤って抽出していたため、
+    最後から2列目(キャリーオーバー)を使うよう修正済み。
     """
     reader = csv.reader(io.StringIO(text))
     header = next(reader)
@@ -159,7 +160,7 @@ def parse_carryover(text):
     for row in reader:
         try:
             round_no = int(row[0])
-            carry = int(row[-1])
+            carry = int(row[-2])
             rows.append([round_no, carry])
         except Exception:
             continue
