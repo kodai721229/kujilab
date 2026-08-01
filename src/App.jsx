@@ -8,12 +8,12 @@ const SETSU_BOUNDS = [["2024-02-04", "立春"], ["2024-03-05", "啓蟄"], ["2024
 
 // ===== ゲーム定義 =====
 const GAMES = {
-  loto6: { label: 'ロト6', short: 'L6', min: 1, max: 43, pick: 6, bonus: 1, hasData: true, draw: '毎週月・木', color: '#1F6F5C', jackpot: { count: 1, message: 'これで君も\n億万長者だー！！', align: 'end' } },
-  loto7: { label: 'ロト7', short: 'L7', min: 1, max: 37, pick: 7, bonus: 2, hasData: true, draw: '毎週金', color: '#2A6F8C', jackpot: { count: 1, message: 'これで君も\n億万長者だー！！', align: 'end' } },
-  miniloto: { label: 'ミニロト', short: 'ML', min: 1, max: 31, pick: 5, bonus: 1, hasData: true, draw: '毎週火', color: '#6F5C1F', jackpot: { count: 3, message: '1000万円\nゲーット！！', align: 'end' } },
-  numbers3: { label: 'ナンバーズ3', short: 'N3', digits: 3, hasData: true, draw: '平日毎日', color: '#7A4A9C', jackpot: { count: 3, message: '高額当選だー！！', align: 'end' } },
-  numbers4: { label: 'ナンバーズ4', short: 'N4', digits: 4, hasData: true, draw: '平日毎日', color: '#9C4A6F', jackpot: { count: 3, message: '高額当選だー！！', align: 'end' } },
-  bingo5: { label: 'ビンゴ5', short: 'B5', min: 1, max: 40, pick: 8, bonus: 0, hasData: true, draw: '毎週水', color: '#4A7A9C', jackpot: { count: 5, message: 'GO!GO!\n高額当選GOー！', align: 'end' } },
+  loto6: { label: 'ロト6', short: 'L6', min: 1, max: 43, pick: 6, bonus: 1, hasData: true, draw: '毎週月・木', color: '#1F6F5C', jackpot: { count: 1, message: '千両箱、\nご開帳じゃー！！', align: 'end' } },
+  loto7: { label: 'ロト7', short: 'L7', min: 1, max: 37, pick: 7, bonus: 2, hasData: true, draw: '毎週金', color: '#2A6F8C', jackpot: { count: 1, message: '千両箱、\nご開帳じゃー！！', align: 'end' } },
+  miniloto: { label: 'ミニロト', short: 'ML', min: 1, max: 31, pick: 5, bonus: 1, hasData: true, draw: '毎週火', color: '#6F5C1F', jackpot: { count: 3, message: 'いい流れが\n来てるぞー！！', align: 'end' } },
+  numbers3: { label: 'ナンバーズ3', short: 'N3', digits: 3, hasData: true, draw: '平日毎日', color: '#7A4A9C', jackpot: { count: 3, message: '数字が\n揃ったぞー！！', align: 'end' } },
+  numbers4: { label: 'ナンバーズ4', short: 'N4', digits: 4, hasData: true, draw: '平日毎日', color: '#9C4A6F', jackpot: { count: 3, message: '数字が\n揃ったぞー！！', align: 'end' } },
+  bingo5: { label: 'ビンゴ5', short: 'B5', min: 1, max: 40, pick: 8, bonus: 0, hasData: true, draw: '毎週水', color: '#4A7A9C', jackpot: { count: 5, message: 'GO!GO!\n今日はツイてるぞー！', align: 'end' } },
 };
 const GAME_ORDER = ['loto6', 'loto7', 'miniloto', 'numbers3', 'numbers4', 'bingo5'];
 
@@ -328,7 +328,7 @@ function RainbowArc() {
   );
 }
 
-function LeoJackpot({ message = 'これで君も\n億万長者だー！！' }) {
+function LeoJackpot({ message = '千両箱、\nご開帳じゃー！！' }) {
   const lines = message.split('\n');
   return (
     <div className="leo-jackpot">
@@ -364,7 +364,7 @@ function LeoJackpot({ message = 'これで君も\n億万長者だー！！' }) {
 }
 
 // ===== ミニフクロウ部隊(複数羽で喜ぶ演出) =====
-function MiniOwlSquad({ count = 3, message = '高額当選だー！！' }) {
+function MiniOwlSquad({ count = 3, message = '数字が揃ったぞー！！' }) {
   const lines = message.split('\n');
   // 羽数に応じた配置(3羽=下段に一列、5羽=下段に弧形)
   const layout = count >= 5
