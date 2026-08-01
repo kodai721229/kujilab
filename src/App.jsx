@@ -1938,7 +1938,7 @@ function FortunePage(props) {
 export default function KujiLabApp() {
   const [gameKey, setGameKey] = useState('loto6');
   const [view, setView] = useState('predict'); // predict | calendar
-  const [premiumPreview, setPremiumPreview] = useState(false);
+  const [premiumPreview, setPremiumPreview] = useState(false); // ユーザー自身がタップして切り替える
   const [weights, setWeights] = useState({ prior: 0.1, mk: 0.2, ema: 0.2, cop: 0.5 });
   const [sumRange, setSumRange] = useState([100, 165]);
   const [statSets, setStatSets] = useState([]);
@@ -2733,7 +2733,7 @@ export default function KujiLabApp() {
               </div>
             </div>
             <div className="kl-premium-toggle">
-              <span>{premiumPreview ? '🎉 無料公開キャンペーン中' : 'プレビュー：無料'}</span>
+              <span>{premiumPreview ? '🎉 無料公開キャンペーン中' : '←タップして全分析機能を使おう'}</span>
               <button className={'kl-switch' + (premiumPreview ? ' on' : '')} onClick={() => setPremiumPreview(!premiumPreview)}>
                 <span className="kl-switch-knob"></span>
               </button>
